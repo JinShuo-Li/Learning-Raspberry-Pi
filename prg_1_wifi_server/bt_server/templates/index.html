@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Bluetooth Chat</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 10px; background: #f0f2f5; }
+        
+        /* Header */
+        header { text-align: center; margin-bottom: 10px; }
+        h2 { margin: 0; color: #333; }
+        #welcome-msg { color: #666; font-size: 0.9em; margin-top: 5px; }
+
+        /* Chat Area */
+        #chat-box { height: 65vh; overflow-y: scroll; background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid #ddd; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        
+        /* Messages Layout */
+        .message-wrapper { margin-bottom: 15px; display: flex; flex-direction: column; }
+        
+        /* Message Bubbles */
+        .message-bubble { padding: 10px 14px; border-radius: 18px; max-width: 75%; word-wrap: break-word; position: relative; }
+        .sender-name { font-size: 0.75em; color: #888; margin-bottom: 4px; margin-left: 10px; }
+        .timestamp { font-size: 0.65em; opacity: 0.6; margin-left: 8px; vertical-align: bottom; }
+
+        /* Styles for "Others" (Left) */
+        .wrapper-left { align-items: flex-start; }
+        .bubble-left { background: #e4e6eb; color: #050505; border-bottom-left-radius: 4px; }
+        
+        /* Styles for "Me" (Right) */
+        .wrapper-right { align-items: flex-end; }
+        .bubble-right { background: #0084ff; color: white; border-bottom-right-radius: 4px; }
+        .name-right { margin-right: 10px; text-align: right; }
+
+        /* Input Area */
+        .controls { display: flex; gap: 8px; margin-bottom: 10px; }
+        input[type="text"] { flex-grow: 1; padding: 12px; border-radius: 20px; border: 1px solid #ccc; outline: none; }
+        button { padding: 10px 20px; background: #0084ff; color: white; border: none; border-radius: 20px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        button:active { background: #006bce; }
+        button.secondary { background: #6c757d; }
+
+        /* File Upload */
+        .file-controls { display: flex; align-items: center; gap: 10px; background: #fff; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
+        
+        /* Images in chat */
+        img.preview { max-width: 100%; border-radius: 8px; margin-top: 5px; display: block; border: 1px solid rgba(0,0,0,0.1); }
+        a.file-link { color: inherit; text-decoration: underline; font-weight: bold; }
+        
+        /* Utils */
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h2>Bluetooth Chat</h2>
+        <div id="welcome-msg">Connecting...</div>
+    </header>
+    
+    <div id="chat-box"></div>
+
+    <div class="controls">
+        <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
+        <button onclick="sendText()">Send</button>
+    </div>
+
+    <div class="file-controls">
+        <input type="file" id="file-input">
+        <button class="secondary" onclick="uploadFile()" id="upload-btn">Upload</button>
+    </div>
+    
+    <div style="text-align: center; margin-top: 15px;">
+        <small onclick="resetName()" style="color: #0084ff; cursor: pointer; text-decoration: underline;">Change My Nickname</small>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        let currentMsgCount = 0;
+        let myName = "";
+
+        // 1. Initialize User
+        function checkUser() {
+            myName = localStorage.getItem('bt_chat_username');
+            
+            if (!myName) {
+                myName = prompt("Welcome! Please enter your nickname:");
+                if (!myName || myName.trim() === "") myName = "Guest"; 
+                localStorage.setItem('bt_chat_username', myName);
+            }
+            document.getElementById('welcome-msg').innerText = `Logged in as: ${myName}`;
+        }
+
+        function resetName() {
+            localStorage.removeItem('bt_chat_username');
+            location.reload();
+        }
+
+        // 2. Send Text Message
+        async function sendText() {
+            const input = document.getElementById('msg-input');
+            const text = input.value;
+            if(!text) return;
+            
+            try {
+                await fetch('/send_msg', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: myName, 
+                        message: text
+                    })
+                });
+                input.value = '';
+                loadMessages();
+            } catch (err) {
+                alert("Error sending message. Check connection.");
+            }
+        }
+
+        // 3. Upload File
+        async function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            const file = fileInput.files[0];
+            if(!file) return alert("Please select a file first.");
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('username', myName); // Send username with file
+
+            const btn = document.getElementById('upload-btn');
+            const originalText = btn.innerText;
+            btn.innerText = "Uploading...";
+            btn.disabled = true;
+            
+            try {
+                await fetch('/upload', { method: 'POST', body: formData });
+            } catch (err) {
+                alert("Upload failed.");
+            }
+            
+            btn.innerText = originalText;
+            btn.disabled = false;
+            fileInput.value = ''; 
+            loadMessages();
+        }
+
+        // 4. Fetch and Render Messages
+        async function loadMessages() {
+            try {
+                const res = await fetch('/get_msgs');
+                const msgs = await res.json();
+                
+                if (msgs.length > currentMsgCount) {
+                    // Re-render only if there are new messages
+                    chatBox.innerHTML = ''; 
+                    
+                    msgs.forEach(msg => {
+                        const isMe = (msg.user === myName);
+                        
+                        // Wrapper
+                        const wrapper = document.createElement('div');
+                        wrapper.className = `message-wrapper ${isMe ? 'wrapper-right' : 'wrapper-left'}`;
+
+                        // Name tag
+                        const nameDiv = document.createElement('div');
+                        nameDiv.className = `sender-name ${isMe ? 'name-right' : ''}`;
+                        nameDiv.innerText = msg.user || 'Unknown';
+
+                        // Content Bubble
+                        const bubble = document.createElement('div');
+                        bubble.className = `message-bubble ${isMe ? 'bubble-right' : 'bubble-left'}`;
+                        
+                        let contentHtml = '';
+                        if (msg.type === 'text') {
+                            contentHtml = `<span>${msg.content}</span>`;
+                        } else if (msg.type === 'image') {
+                            contentHtml = `<div><strong>Image:</strong> ${msg.content}</div><img src="${msg.url}" class="preview">`;
+                        } else {
+                            contentHtml = `<div><strong>File:</strong> <a href="${msg.url}" target="_blank" class="file-link">${msg.content}</a></div>`;
+                        }
+
+                        bubble.innerHTML = `${contentHtml} <span class="timestamp">${msg.time}</span>`;
+
+                        wrapper.appendChild(nameDiv);
+                        wrapper.appendChild(bubble);
+                        chatBox.appendChild(wrapper);
+                    });
+
+                    // Scroll to bottom
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                    currentMsgCount = msgs.length;
+                }
+            } catch (err) {
+                console.error("Connection error or server offline.");
+            }
+        }
+
+        // Start App
+        checkUser();
+        
+        // Poll for new messages every 2 seconds
+        setInterval(loadMessages, 2000);
+        loadMessages();
+        
+        // Allow sending with "Enter" key
+        document.getElementById('msg-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendText();
+            }
+        });
+    </script>
+</body>
+</html>
