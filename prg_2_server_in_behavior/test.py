@@ -182,7 +182,7 @@ class Agent:
         self.cooldown -= CONFIG["Tick"]
         
         if self.type == 0:
-            if self.age > 2000: self.alive = False
+            # if self.age > 2000: self.alive = False
             return
 
         # 生长
@@ -245,8 +245,8 @@ class Agent:
         cost = (base_cost + (speed**2 * self.size * 0.005) + (self.sense_radius * 0.002) + (self.size**2 * 0.01)) * tick
         self.energy -= cost
         
-        max_age = CONFIG["Herb_Max_Age"] if self.type == 1 else CONFIG["Carn_Max_Age"]
-        if self.energy <= 0 or self.age > max_age:
+        # max_age = CONFIG["Herb_Max_Age"] if self.type == 1 else CONFIG["Carn_Max_Age"]
+        if self.energy <= 0: # or self.age > max_age:
             self.alive = False
 
     def _find_closest(self, agents, w, h, exclude_self=False):
