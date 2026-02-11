@@ -1,7 +1,10 @@
 
 # My C++ Learning Journey: Code Archive
+
 **Date:** 2026-02-11
-**Author:** (Your Name)
+
+**Author:** Jinshuo Li
+
 **Summary:** A collection of C++ programs written during the interactive learning session, covering basics from variables to structs.
 
 ---
